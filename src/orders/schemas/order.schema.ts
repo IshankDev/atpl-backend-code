@@ -20,6 +20,12 @@ export class Order extends Document {
 
   @Prop({ enum: ["pending", "completed", "failed"], default: "pending" })
   status: string;
+
+  @Prop({ default: false })
+  isArchived: boolean;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);

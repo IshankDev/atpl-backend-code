@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from "@nestjs/common";
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from "@nestjs/swagger";
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery } from "@nestjs/swagger";
 import { UsersService } from "./users.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
@@ -41,6 +41,12 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: "Get all users" })
+  @ApiQuery({
+    name: "search",
+    required: false,
+    description: "Search query to filter users by name, email, or phone number",
+    example: "john",
+  })
   @ApiResponse({
     status: 200,
     description: "List of all users retrieved successfully",
@@ -56,8 +62,8 @@ export class UsersController {
       ],
     },
   })
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query("search") searchQuery?: string) {
+    return this.usersService.findAll(searchQuery);
   }
 
   @Get(":id")

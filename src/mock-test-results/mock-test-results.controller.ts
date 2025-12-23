@@ -54,6 +54,12 @@ export class MockTestResultsController {
   @ApiQuery({ name: "maxScore", required: false, description: "Maximum score filter", example: "100" })
   @ApiQuery({ name: "minPercentage", required: false, description: "Minimum percentage filter", example: "80" })
   @ApiQuery({ name: "maxPercentage", required: false, description: "Maximum percentage filter", example: "100" })
+  @ApiQuery({
+    name: "search",
+    required: false,
+    description: "Search query to filter by student name, email, or test title",
+    example: "john",
+  })
   @ApiResponse({
     status: 200,
     description: "List of mock test results retrieved successfully",
@@ -83,8 +89,12 @@ export class MockTestResultsController {
     @Query("minScore") minScore?: string,
     @Query("maxScore") maxScore?: string,
     @Query("minPercentage") minPercentage?: string,
-    @Query("maxPercentage") maxPercentage?: string
+    @Query("maxPercentage") maxPercentage?: string,
+    @Query("search") searchQuery?: string
   ) {
+    if (searchQuery) {
+      return this.mockTestResultsService.findAll(searchQuery);
+    }
     if (userId) {
       return this.mockTestResultsService.findByUserId(userId);
     }

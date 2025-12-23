@@ -61,4 +61,40 @@ export class CreateSubscriptionDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    description: "Array of course IDs included in this subscription bundle",
+    example: ["507f1f77bcf86cd799439011", "507f1f77bcf86cd799439012"],
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  courseIds?: string[];
+
+  @ApiPropertyOptional({
+    description: "Expiration date for the subscription (ISO date string)",
+    example: "2024-12-31T23:59:59.999Z",
+  })
+  @IsOptional()
+  expirationDate?: Date;
+
+  @ApiPropertyOptional({
+    description: "Whether the subscription has an expiration date",
+    example: false,
+    default: false,
+  })
+  @IsOptional()
+  hasExpiration?: boolean;
+
+  @ApiPropertyOptional({
+    description: "Bundle discount amount in currency units",
+    example: 50.0,
+    minimum: 0,
+    default: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  bundleDiscount?: number;
 }

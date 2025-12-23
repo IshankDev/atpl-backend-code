@@ -14,13 +14,90 @@ export class MockTestResultsService {
     return createdMockTestResult.save();
   }
 
-  async findAll(): Promise<MockTestResult[]> {
-    return this.mockTestResultModel
-      .find()
-      .populate("mockTestId")
-      .populate("userId")
-      .populate("answers.questionId")
-      .exec();
+  async findAll(searchQuery?: string): Promise<MockTestResult[]> {
+    if (!searchQuery) {
+      return this.mockTestResultModel
+        .find()
+        .populate("mockTestId")
+        .populate("userId")
+        .populate("answers.questionId")
+        .exec();
+    }
+
+    // Use aggregation pipeline to search in populated fields
+    const searchRegex = new RegExp(searchQuery, "i");
+
+    const pipeline: any[] = [
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      {
+        $lookup: {
+          from: "mocktests",
+          localField: "mockTestId",
+          foreignField: "_id",
+          as: "mockTest",
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { "user.name": { $regex: searchRegex } },
+            { "user.email": { $regex: searchRegex } },
+            { "mockTest.title": { $regex: searchRegex } },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          userId: { $arrayElemAt: ["$user", 0] },
+          mockTestId: { $arrayElemAt: ["$mockTest", 0] },
+        },
+      },
+      {
+        $project: {
+          user: 0,
+          mockTest: 0,
+        },
+      },
+    ];
+
+    const results = await this.mockTestResultModel.aggregate(pipeline).exec();
+
+    // Populate questionId in answers
+    const populatedResults = await Promise.all(
+      results.map(async (result) => {
+        if (result.answers && result.answers.length > 0) {
+          const populatedAnswers = await Promise.all(
+            result.answers.map(async (answer: any) => {
+              if (answer.questionId) {
+                const question = await this.mockTestResultModel.db
+                  .collection("questions")
+                  .findOne({ _id: answer.questionId });
+                return {
+                  ...answer,
+                  questionId: question,
+                };
+              }
+              return answer;
+            })
+          );
+          result.answers = populatedAnswers;
+        }
+        return result;
+      })
+    );
+
+    // Convert to proper MockTestResult documents
+    return populatedResults.map((result) => {
+      const mockTestResult = new this.mockTestResultModel(result);
+      return mockTestResult;
+    });
   }
 
   async findOne(id: string): Promise<MockTestResult> {

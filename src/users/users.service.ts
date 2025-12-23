@@ -14,8 +14,21 @@ export class UsersService {
     return createdUser.save();
   }
 
-  async findAll(): Promise<User[]> {
-    return this.userModel.find().exec();
+  async findAll(searchQuery?: string): Promise<User[]> {
+    if (!searchQuery) {
+      return this.userModel.find().exec();
+    }
+
+    const searchRegex = new RegExp(searchQuery, "i");
+    return this.userModel
+      .find({
+        $or: [
+          { name: { $regex: searchRegex } },
+          { email: { $regex: searchRegex } },
+          { phoneNumber: { $regex: searchRegex } },
+        ],
+      })
+      .exec();
   }
 
   async findOne(id: string): Promise<User> {

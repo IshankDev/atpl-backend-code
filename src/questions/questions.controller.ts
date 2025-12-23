@@ -9,8 +9,9 @@ import {
   Query,
   UseInterceptors,
   UploadedFiles,
+  UploadedFile,
 } from "@nestjs/common";
-import { FilesInterceptor } from "@nestjs/platform-express";
+import { FileInterceptor, FilesInterceptor } from "@nestjs/platform-express";
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody, ApiQuery, ApiConsumes } from "@nestjs/swagger";
 import { QuestionsService } from "./questions.service";
 import { CreateQuestionDto } from "./dto/create-question.dto";
@@ -60,7 +61,23 @@ export class QuestionsController {
     },
   })
   @ApiResponse({ status: 400, description: "Bad request - validation error" })
-  create(@Body() createQuestionDto: CreateQuestionDto, @UploadedFiles() files: Express.Multer.File[]) {
+  create(@Body() body: any, @UploadedFiles() files: Express.Multer.File[]) {
+    // Parse FormData fields that are sent as JSON strings
+    const createQuestionDto: CreateQuestionDto = {
+      linkedNodeId: body.linkedNodeId,
+      linkedNodeType: body.linkedNodeType,
+      type: body.type,
+      difficulty: body.difficulty,
+      question: typeof body.question === "string" ? JSON.parse(body.question) : body.question,
+      options: body.options ? (typeof body.options === "string" ? JSON.parse(body.options) : body.options) : undefined,
+      answer: typeof body.answer === "string" ? JSON.parse(body.answer) : body.answer,
+      explanation: body.explanation
+        ? typeof body.explanation === "string"
+          ? JSON.parse(body.explanation)
+          : body.explanation
+        : undefined,
+    };
+
     // Handle file uploads and update DTO with file URLs
     // This is a basic implementation - you'll need to add file storage logic
     return this.questionsService.create(createQuestionDto);
@@ -77,6 +94,12 @@ export class QuestionsController {
   @ApiQuery({ name: "linkedNodeType", required: false, description: "Filter by linked node type", example: "Chapter" })
   @ApiQuery({ name: "type", required: false, description: "Filter by question type", example: "mcq" })
   @ApiQuery({ name: "difficulty", required: false, description: "Filter by difficulty level", example: "medium" })
+  @ApiQuery({
+    name: "search",
+    required: false,
+    description: "Search query to filter questions by text in question, answer, or explanation",
+    example: "capital",
+  })
   @ApiResponse({
     status: 200,
     description: "List of questions retrieved successfully",
@@ -101,18 +124,16 @@ export class QuestionsController {
     @Query("linkedNodeId") linkedNodeId?: string,
     @Query("linkedNodeType") linkedNodeType?: string,
     @Query("type") type?: string,
-    @Query("difficulty") difficulty?: string
+    @Query("difficulty") difficulty?: string,
+    @Query("search") searchQuery?: string
   ) {
-    if (linkedNodeId && linkedNodeType) {
-      return this.questionsService.findByLinkedNode(linkedNodeId, linkedNodeType);
-    }
-    if (type) {
-      return this.questionsService.findByType(type);
-    }
-    if (difficulty) {
-      return this.questionsService.findByDifficulty(difficulty);
-    }
-    return this.questionsService.findAll();
+    return this.questionsService.findAll({
+      linkedNodeId,
+      linkedNodeType,
+      type,
+      difficulty,
+      searchQuery,
+    });
   }
 
   @Get(":id")
@@ -182,13 +203,73 @@ export class QuestionsController {
   })
   @ApiResponse({ status: 404, description: "Question not found" })
   @ApiResponse({ status: 400, description: "Bad request - validation error" })
-  update(
-    @Param("id") id: string,
-    @Body() updateQuestionDto: UpdateQuestionDto,
-    @UploadedFiles() files: Express.Multer.File[]
-  ) {
+  update(@Param("id") id: string, @Body() body: any, @UploadedFiles() files: Express.Multer.File[]) {
+    // Parse FormData fields that are sent as JSON strings
+    const updateQuestionDto: UpdateQuestionDto = {};
+
+    if (body.linkedNodeId) updateQuestionDto.linkedNodeId = body.linkedNodeId;
+    if (body.linkedNodeType) updateQuestionDto.linkedNodeType = body.linkedNodeType;
+    if (body.type) updateQuestionDto.type = body.type;
+    if (body.difficulty) updateQuestionDto.difficulty = body.difficulty;
+    if (body.question) {
+      updateQuestionDto.question = typeof body.question === "string" ? JSON.parse(body.question) : body.question;
+    }
+    if (body.options !== undefined) {
+      updateQuestionDto.options = typeof body.options === "string" ? JSON.parse(body.options) : body.options;
+    }
+    if (body.answer) {
+      updateQuestionDto.answer = typeof body.answer === "string" ? JSON.parse(body.answer) : body.answer;
+    }
+    if (body.explanation !== undefined) {
+      updateQuestionDto.explanation =
+        typeof body.explanation === "string" ? JSON.parse(body.explanation) : body.explanation;
+    }
+
     // Handle file uploads and update DTO with file URLs
     return this.questionsService.update(id, updateQuestionDto);
+  }
+
+  @Post("import-csv")
+  @ApiOperation({ summary: "Import questions from CSV file" })
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        file: {
+          type: "string",
+          format: "binary",
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor("file"))
+  @ApiResponse({
+    status: 200,
+    description: "Questions imported successfully",
+    schema: {
+      example: {
+        count: 10,
+        errors: [],
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Questions imported with some errors",
+    schema: {
+      example: {
+        count: 8,
+        errors: ["Row 3: Missing required fields", "Row 7: Invalid question type"],
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: "Bad request - invalid file or format" })
+  async importCSV(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new Error("No file provided");
+    }
+    return this.questionsService.importFromCSV(file);
   }
 
   @Delete(":id")
