@@ -2,9 +2,31 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import * as express from "express";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: true,
+    rawBody: false,
+  });
+
+  // Increase body size limit to 10MB (for base64 encoded images)
+  // This needs to be done before any routes are registered
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+  // Enable CORS
+  app.enableCors({
+    origin: [
+      process.env.FRONTEND_URL || "http://localhost:3000",
+      "http://localhost:3001", // Admin frontend (Next.js default)
+      "http://localhost:3002", // Alternative port
+      /^http:\/\/localhost:\d+$/, // Allow any localhost port for development
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-forwarded-for", "user-agent"],
+  });
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>("PORT") || 3000;
@@ -47,6 +69,18 @@ async function bootstrap() {
 - Top performers analytics
 - Test history tracking
 
+### Feedback Management
+- **Examiner Feedback**: CRUD operations for examiner/admin feedback on student performance
+  - Search feedbacks by student name, email, test title, or feedback content
+  - Feedback statistics (total, this month, this week, unread)
+  - Examiner feedback submission for mock test results
+- **Student Submissions**: Separate CRUD operations for student-submitted feedbacks
+  - Get all student feedbacks (where submittedBy equals userId)
+  - Search student feedbacks by name, email, or message content
+  - Student feedback statistics (total, this month, this week, unread)
+  - Update and delete student-submitted feedbacks
+  - Dedicated endpoints for managing student issues, concerns, and suggestions
+
 ### Authentication
 - JWT-based authentication
 - OTP verification
@@ -62,6 +96,10 @@ async function bootstrap() {
     .addTag("Orders", "Order and payment tracking with search, pagination, archiving, stats, and CSV export")
     .addTag("MockTests", "Mock test creation and management")
     .addTag("MockTestResults", "Test results and performance analytics with search functionality")
+    .addTag(
+      "Feedbacks",
+      "Feedback management with CRUD operations, search, and statistics. Includes examiner feedbacks and student-submitted feedbacks with separate endpoints and statistics."
+    )
     .addBearerAuth()
     .build();
 

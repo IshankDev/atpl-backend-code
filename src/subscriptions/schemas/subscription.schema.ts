@@ -30,8 +30,14 @@ export class Subscription extends Document {
   @Prop({ default: false })
   hasExpiration: boolean;
 
+  @Prop()
+  expirationMonths: number;
+
   @Prop({ default: 0 })
   bundleDiscount: number;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const SubscriptionSchema = SchemaFactory.createForClass(Subscription);

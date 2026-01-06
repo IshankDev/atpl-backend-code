@@ -84,11 +84,11 @@ export class CreateQuestionDto {
 
   @ApiProperty({
     description: "Type of the linked node",
-    enum: ["Subject", "Chapter", "Topic"],
+    enum: ["Subject", "Topic", "Chapter", "Book"],
     example: "Chapter",
   })
   @IsNotEmpty()
-  @IsEnum(["Subject", "Chapter", "Topic"])
+  @IsEnum(["Subject", "Topic", "Chapter", "Book"])
   linkedNodeType: string;
 
   @ApiProperty({

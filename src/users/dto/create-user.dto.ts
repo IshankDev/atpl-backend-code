@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, IsBoolean } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class CreateUserDto {
@@ -58,4 +58,13 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(["student", "teacher", "admin"])
   role?: string;
+
+  @ApiPropertyOptional({
+    description: "Whether the user is active (default: true)",
+    default: true,
+    example: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

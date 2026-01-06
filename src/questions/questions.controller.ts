@@ -136,6 +136,53 @@ export class QuestionsController {
     });
   }
 
+  @Get("stats")
+  @ApiOperation({ summary: "Get questions statistics" })
+  @ApiResponse({
+    status: 200,
+    description: "Questions statistics retrieved successfully",
+    schema: {
+      example: {
+        total: 150,
+        mcq: 85,
+        truefalse: 40,
+        fillblank: 25,
+      },
+    },
+  })
+  getStats() {
+    return this.questionsService.getStats();
+  }
+
+  @Get("most-viewed/daily")
+  @ApiOperation({ summary: "Get most viewed question (daily basis)" })
+  @ApiResponse({
+    status: 200,
+    description: "Most viewed question retrieved successfully",
+    schema: {
+      example: {
+        questionId: "507f1f77bcf86cd799439011",
+        questionText: "What is the primary factor that affects runway friction during aircraft landing?",
+        viewCount: 245,
+        dailyViewCount: 32,
+        type: "mcq",
+        difficulty: "medium",
+        subject: "Aviation",
+        chapter: "Aircraft Operations",
+        topic: "Runway Friction",
+        correctAnswers: 198,
+        incorrectAnswers: 47,
+        averageTime: 45,
+        accuracy: 80.8,
+        date: "2024-01-15",
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: "No questions viewed today", schema: { example: null } })
+  getMostViewedQuestionDaily() {
+    return this.questionsService.getMostViewedQuestionDaily();
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "Get question by ID" })
   @ApiParam({ name: "id", description: "Question ID", example: "507f1f77bcf86cd799439011" })

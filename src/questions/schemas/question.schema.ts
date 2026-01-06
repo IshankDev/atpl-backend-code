@@ -6,7 +6,7 @@ export class Question extends Document {
   @Prop({ type: Types.ObjectId, refPath: "linkedNodeType" })
   linkedNodeId: Types.ObjectId;
 
-  @Prop({ required: true, enum: ["Subject", "Chapter", "Topic"] })
+  @Prop({ required: true, enum: ["Subject", "Topic", "Chapter", "Book"] })
   linkedNodeType: string;
 
   @Prop({ required: true, enum: ["mcq", "truefalse", "fillblank"] })

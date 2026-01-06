@@ -24,6 +24,9 @@ export class User extends Document {
   @Prop({ default: false })
   isEmailVerified: boolean;
 
+  @Prop({ default: true })
+  isActive: boolean;
+
   @Prop({
     type: {
       subscriptionId: { type: Types.ObjectId, ref: "Subscription" },

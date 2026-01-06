@@ -1,18 +1,38 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { Order } from "./schemas/order.schema";
 import { CreateOrderDto } from "./dto/create-order.dto";
 import { UpdateOrderDto } from "./dto/update-order.dto";
 import { OrderStatsDto } from "./dto/order-stats.dto";
+import { Subscription } from "../subscriptions/schemas/subscription.schema";
+import { User } from "../users/schemas/user.schema";
 
 @Injectable()
 export class OrdersService {
-  constructor(@InjectModel(Order.name) private orderModel: Model<Order>) {}
+  constructor(
+    @InjectModel(Order.name) private orderModel: Model<Order>,
+    @InjectModel(Subscription.name) private subscriptionModel: Model<Subscription>,
+    @InjectModel(User.name) private userModel: Model<User>
+  ) {}
 
   async create(createOrderDto: CreateOrderDto): Promise<Order> {
     const createdOrder = new this.orderModel(createOrderDto);
-    return createdOrder.save();
+    const savedOrder = await createdOrder.save();
+
+    // If order is created with completed status, update user subscription
+    if (savedOrder.status === "completed") {
+      const populatedOrder = await this.orderModel
+        .findById(savedOrder._id)
+        .populate("subscriptionId")
+        .populate("userId")
+        .exec();
+      if (populatedOrder) {
+        await this.updateUserSubscription(populatedOrder);
+      }
+    }
+
+    return savedOrder;
   }
 
   async findAll(filters?: {
@@ -141,6 +161,11 @@ export class OrdersService {
   }
 
   async update(id: string, updateOrderDto: UpdateOrderDto): Promise<Order> {
+    // Get the current order to check if status is changing to "completed"
+    const currentOrder = await this.orderModel.findById(id).exec();
+    const isStatusChangingToCompleted =
+      updateOrderDto.status === "completed" && currentOrder && currentOrder.status !== "completed";
+
     const updatedOrder = await this.orderModel
       .findByIdAndUpdate(id, updateOrderDto, { new: true })
       .populate("subscriptionId")
@@ -149,6 +174,12 @@ export class OrdersService {
     if (!updatedOrder) {
       throw new NotFoundException(`Order with ID ${id} not found`);
     }
+
+    // If status changed to completed, update user subscription
+    if (isStatusChangingToCompleted) {
+      await this.updateUserSubscription(updatedOrder);
+    }
+
     return updatedOrder;
   }
 
@@ -161,7 +192,57 @@ export class OrdersService {
     if (!updatedOrder) {
       throw new NotFoundException(`Order with ID ${id} not found`);
     }
+
+    // If order is completed, update user subscription details
+    if (status === "completed") {
+      await this.updateUserSubscription(updatedOrder);
+    }
+
     return updatedOrder;
+  }
+
+  /**
+   * Update user subscription details when an order is completed
+   * Calculates expiration date based on expirationMonths or expirationDate
+   */
+  private async updateUserSubscription(order: Order): Promise<void> {
+    const subscription = await this.subscriptionModel.findById(order.subscriptionId).exec();
+    if (!subscription) {
+      throw new NotFoundException(`Subscription with ID ${order.subscriptionId} not found`);
+    }
+
+    const user = await this.userModel.findById(order.userId).exec();
+    if (!user) {
+      throw new NotFoundException(`User with ID ${order.userId} not found`);
+    }
+
+    const startDate = new Date();
+    let endDate: Date | null = null;
+
+    // Calculate end date based on expiration logic
+    if (subscription.hasExpiration) {
+      if (subscription.expirationMonths && subscription.expirationMonths > 0) {
+        // Use expirationMonths (new logic)
+        endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + subscription.expirationMonths);
+      } else if (subscription.expirationDate) {
+        // Fallback to expirationDate (backward compatibility)
+        endDate = new Date(subscription.expirationDate);
+      } else if (subscription.validForDays && subscription.validForDays > 0) {
+        // Fallback to validForDays (legacy)
+        endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + subscription.validForDays);
+      }
+    }
+
+    // Update user subscription details
+    await this.userModel.findByIdAndUpdate(order.userId, {
+      subscriptionDetail: {
+        subscriptionId: new Types.ObjectId(subscription._id),
+        startDate: startDate,
+        endDate: endDate,
+      },
+    });
   }
 
   async archive(id: string): Promise<Order> {

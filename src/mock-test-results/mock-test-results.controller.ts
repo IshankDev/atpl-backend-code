@@ -92,9 +92,7 @@ export class MockTestResultsController {
     @Query("maxPercentage") maxPercentage?: string,
     @Query("search") searchQuery?: string
   ) {
-    if (searchQuery) {
-      return this.mockTestResultsService.findAll(searchQuery);
-    }
+    // Handle specific filters first (userId, mockTestId, score range)
     if (userId) {
       return this.mockTestResultsService.findByUserId(userId);
     }
@@ -104,10 +102,12 @@ export class MockTestResultsController {
     if (minScore && maxScore) {
       return this.mockTestResultsService.findByScoreRange(Number(minScore), Number(maxScore));
     }
-    if (minPercentage && maxPercentage) {
-      return this.mockTestResultsService.findByPercentageRange(Number(minPercentage), Number(maxPercentage));
-    }
-    return this.mockTestResultsService.findAll();
+    
+    // Handle search and percentage filter (can be combined)
+    const minPercent = minPercentage ? Number(minPercentage) : undefined;
+    const maxPercent = maxPercentage ? Number(maxPercentage) : undefined;
+    
+    return this.mockTestResultsService.findAll(searchQuery, minPercent, maxPercent);
   }
 
   @Get("top-performers")
@@ -143,6 +143,24 @@ export class MockTestResultsController {
   findTopPerformers(@Query("limit") limit?: string) {
     const limitNumber = limit ? Number(limit) : 10;
     return this.mockTestResultsService.findTopPerformers(limitNumber);
+  }
+
+  @Get("stats")
+  @ApiOperation({ summary: "Get mock test results statistics" })
+  @ApiResponse({
+    status: 200,
+    description: "Mock test results statistics retrieved successfully",
+    schema: {
+      example: {
+        totalResults: 150,
+        averageScore: 78.5,
+        totalStudents: 45,
+        totalTests: 12,
+      },
+    },
+  })
+  getStats() {
+    return this.mockTestResultsService.getStats();
   }
 
   @Get("user/:userId/test/:mockTestId/history")

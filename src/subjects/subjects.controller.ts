@@ -36,7 +36,7 @@ export class SubjectsController {
   @ApiQuery({
     name: "type",
     required: false,
-    description: "Filter by type (subject, chapter, topic)",
+    description: "Filter by type (subject, chapter, topic, book)",
     example: "subject",
   })
   @ApiQuery({

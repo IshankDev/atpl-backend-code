@@ -1,9 +1,9 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsMongoId } from "class-validator";
+import { IsEnum, IsNotEmpty, IsOptional, IsString, IsMongoId, IsNumber, Min } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 export class CreateSubjectDto {
   @ApiProperty({
-    description: "Name of the subject, chapter, or topic",
+    description: "Name of the subject, chapter, topic, or book",
     example: "Mathematics",
     minLength: 2,
     maxLength: 100,
@@ -14,11 +14,11 @@ export class CreateSubjectDto {
 
   @ApiProperty({
     description: "Type of the content node",
-    enum: ["subject", "chapter", "topic"],
+    enum: ["subject", "chapter", "topic", "book"],
     example: "subject",
   })
   @IsNotEmpty()
-  @IsEnum(["subject", "chapter", "topic"])
+  @IsEnum(["subject", "chapter", "topic", "book"])
   type: string;
 
   @ApiPropertyOptional({
@@ -28,4 +28,22 @@ export class CreateSubjectDto {
   @IsOptional()
   @IsMongoId()
   parentId?: string;
+
+  @ApiPropertyOptional({
+    description: "Price of the subject (only applicable for subjects)",
+    example: 1999,
+    minimum: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price?: number;
+
+  @ApiPropertyOptional({
+    description: "URL of the subject image",
+    example: "https://example.com/image.jpg",
+  })
+  @IsOptional()
+  @IsString()
+  imageUrl?: string;
 }

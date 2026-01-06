@@ -73,7 +73,7 @@ export class CreateSubscriptionDto {
   courseIds?: string[];
 
   @ApiPropertyOptional({
-    description: "Expiration date for the subscription (ISO date string)",
+    description: "Expiration date for the subscription (ISO date string) - deprecated, use expirationMonths instead",
     example: "2024-12-31T23:59:59.999Z",
   })
   @IsOptional()
@@ -86,6 +86,16 @@ export class CreateSubscriptionDto {
   })
   @IsOptional()
   hasExpiration?: boolean;
+
+  @ApiPropertyOptional({
+    description: "Expiration period in months from purchase date",
+    example: 6,
+    minimum: 1,
+  })
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  expirationMonths?: number;
 
   @ApiPropertyOptional({
     description: "Bundle discount amount in currency units",

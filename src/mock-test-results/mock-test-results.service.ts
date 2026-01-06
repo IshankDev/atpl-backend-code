@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { MockTestResult } from "./schemas/mock-test-result.schema";
 import { CreateMockTestResultDto } from "./dto/create-mock-test-result.dto";
 import { UpdateMockTestResultDto } from "./dto/update-mock-test-result.dto";
@@ -14,10 +14,19 @@ export class MockTestResultsService {
     return createdMockTestResult.save();
   }
 
-  async findAll(searchQuery?: string): Promise<MockTestResult[]> {
-    if (!searchQuery) {
+  async findAll(searchQuery?: string, minPercentage?: number, maxPercentage?: number): Promise<MockTestResult[]> {
+    // Build base query
+    const baseQuery: any = {};
+    
+    // Add percentage filter if provided
+    if (minPercentage !== undefined && maxPercentage !== undefined) {
+      baseQuery.percentage = { $gte: minPercentage, $lte: maxPercentage };
+    }
+    
+    // If no search query, return filtered results
+    if (!searchQuery || searchQuery.trim() === "") {
       return this.mockTestResultModel
-        .find()
+        .find(baseQuery)
         .populate("mockTestId")
         .populate("userId")
         .populate("answers.questionId")
@@ -25,79 +34,114 @@ export class MockTestResultsService {
     }
 
     // Use aggregation pipeline to search in populated fields
-    const searchRegex = new RegExp(searchQuery, "i");
+    // Escape special regex characters in search query
+    const escapedSearchQuery = searchQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearchQuery, "i");
 
-    const pipeline: any[] = [
-      {
-        $lookup: {
-          from: "users",
-          localField: "userId",
-          foreignField: "_id",
-          as: "user",
-        },
-      },
-      {
-        $lookup: {
-          from: "mocktests",
-          localField: "mockTestId",
-          foreignField: "_id",
-          as: "mockTest",
-        },
-      },
-      {
-        $match: {
+    // First, find matching users and mock tests using direct collection queries
+    const usersCollection = this.mockTestResultModel.db.collection("users");
+    const mockTestsCollection = this.mockTestResultModel.db.collection("mocktests");
+    
+    const [matchingUsers, matchingMockTests] = await Promise.all([
+      usersCollection
+        .find({
           $or: [
-            { "user.name": { $regex: searchRegex } },
-            { "user.email": { $regex: searchRegex } },
-            { "mockTest.title": { $regex: searchRegex } },
+            { name: { $regex: searchRegex } },
+            { email: { $regex: searchRegex } },
           ],
-        },
-      },
-      {
-        $addFields: {
-          userId: { $arrayElemAt: ["$user", 0] },
-          mockTestId: { $arrayElemAt: ["$mockTest", 0] },
-        },
-      },
-      {
-        $project: {
-          user: 0,
-          mockTest: 0,
-        },
-      },
-    ];
+        })
+        .project({ _id: 1 })
+        .toArray(),
+      mockTestsCollection
+        .find({
+          title: { $regex: searchRegex },
+        })
+        .project({ _id: 1 })
+        .toArray(),
+    ]);
 
-    const results = await this.mockTestResultModel.aggregate(pipeline).exec();
-
-    // Populate questionId in answers
-    const populatedResults = await Promise.all(
-      results.map(async (result) => {
-        if (result.answers && result.answers.length > 0) {
-          const populatedAnswers = await Promise.all(
-            result.answers.map(async (answer: any) => {
-              if (answer.questionId) {
-                const question = await this.mockTestResultModel.db
-                  .collection("questions")
-                  .findOne({ _id: answer.questionId });
-                return {
-                  ...answer,
-                  questionId: question,
-                };
-              }
-              return answer;
-            })
-          );
-          result.answers = populatedAnswers;
+    // Convert to ObjectIds for proper matching
+    const matchingUserIds = matchingUsers
+      .map((u: any) => {
+        if (!u || !u._id) return null;
+        try {
+          // Handle both ObjectId and string formats
+          if (u._id instanceof Types.ObjectId) {
+            return u._id;
+          }
+          // Convert string to ObjectId
+          const idString = String(u._id);
+          if (Types.ObjectId.isValid(idString)) {
+            return new Types.ObjectId(idString);
+          }
+          return null;
+        } catch (error) {
+          console.error("Error converting user ID to ObjectId:", error, u._id);
+          return null;
         }
-        return result;
       })
-    );
+      .filter((id) => id !== null) as Types.ObjectId[];
+    
+    const matchingMockTestIds = matchingMockTests
+      .map((m: any) => {
+        if (!m || !m._id) return null;
+        try {
+          // Handle both ObjectId and string formats
+          if (m._id instanceof Types.ObjectId) {
+            return m._id;
+          }
+          // Convert string to ObjectId
+          const idString = String(m._id);
+          if (Types.ObjectId.isValid(idString)) {
+            return new Types.ObjectId(idString);
+          }
+          return null;
+        } catch (error) {
+          console.error("Error converting mock test ID to ObjectId:", error, m._id);
+          return null;
+        }
+      })
+      .filter((id) => id !== null) as Types.ObjectId[];
 
-    // Convert to proper MockTestResult documents
-    return populatedResults.map((result) => {
-      const mockTestResult = new this.mockTestResultModel(result);
-      return mockTestResult;
-    });
+    // Build query to find results matching user or mock test
+    const orConditions: any[] = [];
+    
+    if (matchingUserIds.length > 0) {
+      orConditions.push({ userId: { $in: matchingUserIds } });
+    }
+    
+    if (matchingMockTestIds.length > 0) {
+      orConditions.push({ mockTestId: { $in: matchingMockTestIds } });
+    }
+
+    // If no matches found in users or mock tests, return empty array
+    if (orConditions.length === 0) {
+      return [];
+    }
+
+    // Build the search condition
+    const searchCondition = orConditions.length === 1 ? orConditions[0] : { $or: orConditions };
+
+    // Build the final query combining search and percentage filter
+    let finalQuery: any;
+    
+    if (Object.keys(baseQuery).length > 0) {
+      // We have both search and percentage filter, use $and
+      finalQuery = {
+        $and: [searchCondition, baseQuery],
+      };
+    } else {
+      // Only search condition
+      finalQuery = searchCondition;
+    }
+
+    // Find and populate results
+    return this.mockTestResultModel
+      .find(finalQuery)
+      .populate("mockTestId")
+      .populate("userId")
+      .populate("answers.questionId")
+      .exec();
   }
 
   async findOne(id: string): Promise<MockTestResult> {
@@ -192,5 +236,33 @@ export class MockTestResultsService {
     if (!result) {
       throw new NotFoundException(`MockTestResult with ID ${id} not found`);
     }
+  }
+
+  async getStats(): Promise<{
+    totalResults: number;
+    averageScore: number;
+    totalStudents: number;
+    totalTests: number;
+  }> {
+    const allResults = await this.mockTestResultModel.find().exec();
+
+    const totalResults = allResults.length;
+    const totalScore = allResults.reduce((sum, result) => sum + (result.percentage || 0), 0);
+    const averageScore = totalResults > 0 ? totalScore / totalResults : 0;
+
+    // Get unique students
+    const uniqueUserIds = new Set(allResults.map((result) => result.userId.toString()));
+    const totalStudents = uniqueUserIds.size;
+
+    // Get unique mock tests
+    const uniqueMockTestIds = new Set(allResults.map((result) => result.mockTestId.toString()));
+    const totalTests = uniqueMockTestIds.size;
+
+    return {
+      totalResults,
+      averageScore: Math.round(averageScore * 10) / 10, // Round to 1 decimal place
+      totalStudents,
+      totalTests,
+    };
   }
 }

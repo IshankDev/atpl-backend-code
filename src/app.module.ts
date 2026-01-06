@@ -10,7 +10,9 @@ import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { OrdersModule } from "./orders/orders.module";
 import { MockTestsModule } from "./mock-tests/mock-tests.module";
 import { MockTestResultsModule } from "./mock-test-results/mock-test-results.module";
+import { FeedbacksModule } from "./feedbacks/feedbacks.module";
 import { AuthModule } from "./auth/auth.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 
 @Module({
   imports: [
@@ -31,7 +33,9 @@ import { AuthModule } from "./auth/auth.module";
     OrdersModule,
     MockTestsModule,
     MockTestResultsModule,
+    FeedbacksModule,
     AuthModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
