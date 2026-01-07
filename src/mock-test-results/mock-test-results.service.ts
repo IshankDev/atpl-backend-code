@@ -2,12 +2,18 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { MockTestResult } from "./schemas/mock-test-result.schema";
+import { User } from "../users/schemas/user.schema";
+import { MockTest } from "../mock-tests/schemas/mock-test.schema";
 import { CreateMockTestResultDto } from "./dto/create-mock-test-result.dto";
 import { UpdateMockTestResultDto } from "./dto/update-mock-test-result.dto";
 
 @Injectable()
 export class MockTestResultsService {
-  constructor(@InjectModel(MockTestResult.name) private mockTestResultModel: Model<MockTestResult>) {}
+  constructor(
+    @InjectModel(MockTestResult.name) private mockTestResultModel: Model<MockTestResult>,
+    @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(MockTest.name) private mockTestModel: Model<MockTest>
+  ) {}
 
   async create(createMockTestResultDto: CreateMockTestResultDto): Promise<MockTestResult> {
     const createdMockTestResult = new this.mockTestResultModel(createMockTestResultDto);
@@ -33,85 +39,65 @@ export class MockTestResultsService {
         .exec();
     }
 
-    // Use aggregation pipeline to search in populated fields
-    // Escape special regex characters in search query
-    const escapedSearchQuery = searchQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const searchRegex = new RegExp(escapedSearchQuery, "i");
-
-    // First, find matching users and mock tests using direct collection queries
-    const usersCollection = this.mockTestResultModel.db.collection("users");
-    const mockTestsCollection = this.mockTestResultModel.db.collection("mocktests");
+    // Use Mongoose models to search for matching users and mock tests
+    const trimmedQuery = searchQuery.trim();
+    const searchRegex = new RegExp(trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     
+    // Find matching users and mock tests using Mongoose models
+    // Don't use .lean() to ensure we get proper Mongoose documents with ObjectIds
     const [matchingUsers, matchingMockTests] = await Promise.all([
-      usersCollection
+      this.userModel
         .find({
           $or: [
             { name: { $regex: searchRegex } },
             { email: { $regex: searchRegex } },
           ],
         })
-        .project({ _id: 1 })
-        .toArray(),
-      mockTestsCollection
+        .select("_id")
+        .exec(),
+      this.mockTestModel
         .find({
           title: { $regex: searchRegex },
         })
-        .project({ _id: 1 })
-        .toArray(),
+        .select("_id")
+        .exec(),
     ]);
 
-    // Convert to ObjectIds for proper matching
-    const matchingUserIds = matchingUsers
-      .map((u: any) => {
-        if (!u || !u._id) return null;
-        try {
-          // Handle both ObjectId and string formats
-          if (u._id instanceof Types.ObjectId) {
-            return u._id;
-          }
-          // Convert string to ObjectId
-          const idString = String(u._id);
-          if (Types.ObjectId.isValid(idString)) {
-            return new Types.ObjectId(idString);
-          }
-          return null;
-        } catch (error) {
-          console.error("Error converting user ID to ObjectId:", error, u._id);
-          return null;
-        }
-      })
-      .filter((id) => id !== null) as Types.ObjectId[];
+
+    // Extract ObjectIds from matching users and mock tests
+    // Since we're not using .lean(), _id should already be ObjectId instances
+    const matchingUserIds: (Types.ObjectId | string)[] = matchingUsers
+      .map((u) => u._id)
+      .filter((id) => id != null);
     
-    const matchingMockTestIds = matchingMockTests
-      .map((m: any) => {
-        if (!m || !m._id) return null;
-        try {
-          // Handle both ObjectId and string formats
-          if (m._id instanceof Types.ObjectId) {
-            return m._id;
-          }
-          // Convert string to ObjectId
-          const idString = String(m._id);
-          if (Types.ObjectId.isValid(idString)) {
-            return new Types.ObjectId(idString);
-          }
-          return null;
-        } catch (error) {
-          console.error("Error converting mock test ID to ObjectId:", error, m._id);
-          return null;
-        }
-      })
-      .filter((id) => id !== null) as Types.ObjectId[];
+    const matchingMockTestIds: (Types.ObjectId | string)[] = matchingMockTests
+      .map((m) => m._id)
+      .filter((id) => id != null);
 
     // Build query to find results matching user or mock test
+    // Since userIds are stored as strings in the DB, convert to strings for the query
     const orConditions: any[] = [];
     
     if (matchingUserIds.length > 0) {
-      orConditions.push({ userId: { $in: matchingUserIds } });
+      // Convert to strings since the DB stores them as strings
+      const userIds = matchingUserIds.map((id: Types.ObjectId | string) => {
+        if (id instanceof Types.ObjectId) {
+          return id.toString();
+        }
+        return String(id);
+      });
+      orConditions.push({ userId: { $in: userIds } });
     }
     
     if (matchingMockTestIds.length > 0) {
-      orConditions.push({ mockTestId: { $in: matchingMockTestIds } });
+      // Convert to strings since the DB stores them as strings
+      const mockTestIds = matchingMockTestIds.map((id: Types.ObjectId | string) => {
+        if (id instanceof Types.ObjectId) {
+          return id.toString();
+        }
+        return String(id);
+      });
+      orConditions.push({ mockTestId: { $in: mockTestIds } });
     }
 
     // If no matches found in users or mock tests, return empty array
@@ -134,6 +120,7 @@ export class MockTestResultsService {
       // Only search condition
       finalQuery = searchCondition;
     }
+
 
     // Find and populate results
     return this.mockTestResultModel
