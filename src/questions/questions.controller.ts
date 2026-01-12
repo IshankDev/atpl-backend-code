@@ -279,6 +279,8 @@ export class QuestionsController {
   @Post("import-csv")
   @ApiOperation({ summary: "Import questions from CSV file" })
   @ApiConsumes("multipart/form-data")
+  @ApiQuery({ name: "linkedNodeId", required: true, description: "ID of the subject/topic/chapter/book" })
+  @ApiQuery({ name: "linkedNodeType", required: true, enum: ["Subject", "Topic", "Chapter", "Book"], description: "Type of the linked node" })
   @ApiBody({
     schema: {
       type: "object",
@@ -312,11 +314,18 @@ export class QuestionsController {
     },
   })
   @ApiResponse({ status: 400, description: "Bad request - invalid file or format" })
-  async importCSV(@UploadedFile() file: Express.Multer.File) {
+  async importCSV(
+    @UploadedFile() file: Express.Multer.File,
+    @Query("linkedNodeId") linkedNodeId: string,
+    @Query("linkedNodeType") linkedNodeType: string
+  ) {
     if (!file) {
       throw new Error("No file provided");
     }
-    return this.questionsService.importFromCSV(file);
+    if (!linkedNodeId || !linkedNodeType) {
+      throw new Error("linkedNodeId and linkedNodeType are required");
+    }
+    return this.questionsService.importFromCSV(file, linkedNodeId, linkedNodeType);
   }
 
   @Delete(":id")

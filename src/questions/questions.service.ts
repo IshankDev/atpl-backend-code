@@ -87,7 +87,17 @@ export class QuestionsService {
     }
   }
 
-  async importFromCSV(file: Express.Multer.File): Promise<{ count: number; errors?: string[] }> {
+  async importFromCSV(
+    file: Express.Multer.File,
+    linkedNodeId: string,
+    linkedNodeType: string
+  ): Promise<{ 
+    count: number; 
+    errors?: string[]; 
+    totalRows?: number; 
+    successCount?: number; 
+    failedCount?: number; 
+  }> {
     if (!file) {
       throw new BadRequestException("No file provided");
     }
@@ -106,28 +116,9 @@ export class QuestionsService {
     // Parse header
     const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
 
-    // Expected headers (flexible matching)
-    const expectedHeaders = [
-      "linkednodeid",
-      "linkednodetype",
-      "type",
-      "difficulty",
-      "questiontext",
-      "questionimageurl",
-      "option1text",
-      "option1imageurl",
-      "option2text",
-      "option2imageurl",
-      "option3text",
-      "option3imageurl",
-      "option4text",
-      "option4imageurl",
-      "answertext",
-      "answerimageurl",
-      "explanationtext",
-      "explanationimageurl",
-      "explanationvideourl",
-    ];
+    // Detect format type based on headers
+    const hasNewFormat = headers.includes("question_id") || headers.includes("question_text") || headers.includes("option_1");
+    const hasOldFormat = headers.includes("linkednodeid") || headers.includes("questiontext") || headers.includes("option1text");
 
     const errors: string[] = [];
     const questions: CreateQuestionDto[] = [];
@@ -148,55 +139,26 @@ export class QuestionsService {
           row[header] = values[index]?.trim() || "";
         });
 
-        // Build question object
-        const question: CreateQuestionDto = {
-          linkedNodeId: row.linkednodeid || row["linked node id"],
-          linkedNodeType: row.linkednodetype || row["linked node type"],
-          type: row.type,
-          difficulty: row.difficulty || "medium",
-          question: {
-            text: row.questiontext || row["question text"],
-            imageUrl: row.questionimageurl || row["question image url"] || undefined,
-          },
-          answer: {
-            text: row.answertext || row["answer text"],
-            imageUrl: row.answerimageurl || row["answer image url"] || undefined,
-          },
-        };
+        let question: CreateQuestionDto;
 
-        // Add options if present
-        const options: any[] = [];
-        for (let optNum = 1; optNum <= 4; optNum++) {
-          const optText = row[`option${optNum}text`] || row[`option ${optNum} text`];
-          if (optText) {
-            options.push({
-              text: optText,
-              imageUrl: row[`option${optNum}imageurl`] || row[`option ${optNum} image url`] || undefined,
-            });
-          }
-        }
-        if (options.length > 0) {
-          question.options = options;
-        }
-
-        // Add explanation if present
-        if (row.explanationtext || row["explanation text"]) {
-          question.explanation = {
-            text: row.explanationtext || row["explanation text"] || undefined,
-            imageUrl: row.explanationimageurl || row["explanation image url"] || undefined,
-            videoUrl: row.explanationvideourl || row["explanation video url"] || undefined,
-          };
+        if (hasNewFormat) {
+          // New format: question_id, question_number, question_text, option_1-4, correct_option, explanation, images, weight
+          question = this.parseNewFormatCSV(row, linkedNodeId, linkedNodeType);
+        } else {
+          // Old format: linkednodeid, linkednodetype, type, difficulty, questiontext, etc.
+          question = this.parseOldFormatCSV(row);
+          // Override with provided values if not in CSV
+          if (!question.linkedNodeId) question.linkedNodeId = linkedNodeId;
+          if (!question.linkedNodeType) question.linkedNodeType = linkedNodeType;
         }
 
         // Validate required fields
         if (
-          !question.linkedNodeId ||
-          !question.linkedNodeType ||
           !question.type ||
           !question.question?.text ||
           !question.answer?.text
         ) {
-          errors.push(`Row ${i + 1}: Missing required fields`);
+          errors.push(`Row ${i + 1}: Missing required fields (question text and answer are required)`);
           continue;
         }
 
@@ -208,10 +170,207 @@ export class QuestionsService {
       }
     }
 
+    const totalRows = lines.length - 1; // Exclude header row
+    const failedCount = errors.length;
+
     return {
       count: successCount,
       errors: errors.length > 0 ? errors : undefined,
+      totalRows,
+      successCount,
+      failedCount,
     };
+  }
+
+  private parseNewFormatCSV(row: any, linkedNodeId: string, linkedNodeType: string): CreateQuestionDto {
+    // Map weight to difficulty (1=easy, 2=medium, 3=hard, default=medium)
+    const weight = parseInt(row.weight || "2");
+    let difficulty = "medium";
+    if (weight === 1) difficulty = "easy";
+    else if (weight === 2) difficulty = "medium";
+    else if (weight >= 3) difficulty = "hard";
+
+    // Use provided type or auto-detect based on options
+    const hasOption1 = row.option_1 && row.option_1.trim();
+    const hasOption2 = row.option_2 && row.option_2.trim();
+    const hasOption3 = row.option_3 && row.option_3.trim();
+    const hasOption4 = row.option_4 && row.option_4.trim();
+    
+    let questionType = row.type;
+    if (!questionType) {
+      // Auto-detect type based on options
+      if (hasOption1 && hasOption2 && !hasOption3 && !hasOption4) {
+        questionType = "truefalse";
+      } else if (!hasOption1 && !hasOption2 && !hasOption3 && !hasOption4) {
+        questionType = "fillblank";
+      } else {
+        questionType = "mcq";
+      }
+    }
+
+    // Build options array
+    const options: any[] = [];
+    if (hasOption1) {
+      options.push({ text: row.option_1.trim() });
+    }
+    if (hasOption2) {
+      options.push({ text: row.option_2.trim() });
+    }
+    if (hasOption3) {
+      options.push({ text: row.option_3.trim() });
+    }
+    if (hasOption4) {
+      options.push({ text: row.option_4.trim() });
+    }
+
+    // Determine correct answer from correct_option
+    // For MCQ/TrueFalse: correct_option can be either:
+    //   - A number (1-4) indicating which option is correct
+    //   - The actual answer text that matches one of the options
+    // For FillBlank: correct_option contains the answer text directly
+    let answerText = "";
+    if (questionType === "fillblank") {
+      // For fillblank, correct_option contains the answer text
+      answerText = (row.correct_option || "").trim();
+    } else if (questionType === "truefalse") {
+      // For True/False, normalize the answer
+      const correctOptionValue = (row.correct_option || "").trim().toLowerCase();
+      // Check if it matches "True" or "False" (case-insensitive)
+      if (correctOptionValue === "true" || correctOptionValue === "1" || correctOptionValue === "t") {
+        answerText = "True";
+      } else if (correctOptionValue === "false" || correctOptionValue === "0" || correctOptionValue === "f") {
+        answerText = "False";
+      } else {
+        // Try to find matching option
+        const matchingIndex = options.findIndex(
+          (opt) => opt.text.trim().toLowerCase() === correctOptionValue
+        );
+        if (matchingIndex !== -1) {
+          answerText = options[matchingIndex].text.trim();
+        } else if (options.length > 0) {
+          // Fallback to first option
+          answerText = options[0].text.trim();
+        }
+      }
+    } else {
+      // For MCQ, check if correct_option is a number or text
+      const correctOptionValue = (row.correct_option || "").trim();
+      
+      // Try parsing as number first
+      const correctOptionNum = parseInt(correctOptionValue);
+      if (!isNaN(correctOptionNum) && correctOptionNum >= 1 && correctOptionNum <= 4 && options.length >= correctOptionNum) {
+        // It's a number, use it as index (use exact option text)
+        answerText = options[correctOptionNum - 1].text.trim();
+      } else {
+        // It's text, find matching option (case-insensitive, trimmed comparison)
+        const matchingIndex = options.findIndex(
+          (opt) => opt.text.trim().toLowerCase() === correctOptionValue.toLowerCase()
+        );
+        
+        if (matchingIndex !== -1) {
+          // Found matching option, use its text (use the exact option text, not the CSV value)
+          answerText = options[matchingIndex].text.trim();
+        } else if (options.length > 0) {
+          // No match found, fallback to first option
+          answerText = options[0].text.trim();
+        }
+      }
+    }
+
+    // Parse images field (could be comma-separated URLs or JSON)
+    let questionImageUrl: string | undefined;
+    let answerImageUrl: string | undefined;
+    let explanationImageUrl: string | undefined;
+    let explanationVideoUrl: string | undefined;
+
+    if (row.images) {
+      try {
+        // Try parsing as JSON first
+        const imagesData = JSON.parse(row.images);
+        if (typeof imagesData === "object") {
+          questionImageUrl = imagesData.question || imagesData.questionImageUrl;
+          answerImageUrl = imagesData.answer || imagesData.answerImageUrl;
+          explanationImageUrl = imagesData.explanation || imagesData.explanationImageUrl;
+          explanationVideoUrl = imagesData.video || imagesData.videoUrl || imagesData.explanationVideoUrl;
+        }
+      } catch {
+        // If not JSON, try comma-separated format: question,answer,explanation,video
+        const imageUrls = row.images.split(",").map((url: string) => url.trim()).filter(Boolean);
+        if (imageUrls.length > 0) questionImageUrl = imageUrls[0];
+        if (imageUrls.length > 1) answerImageUrl = imageUrls[1];
+        if (imageUrls.length > 2) explanationImageUrl = imageUrls[2];
+        if (imageUrls.length > 3) explanationVideoUrl = imageUrls[3];
+      }
+    }
+
+    const question: CreateQuestionDto = {
+      linkedNodeId: linkedNodeId, // Use provided linkedNodeId
+      linkedNodeType: linkedNodeType, // Use provided linkedNodeType
+      type: questionType,
+      difficulty: row.difficulty || difficulty,
+      question: {
+        text: row.question_text || row["question_text"] || "",
+        imageUrl: questionImageUrl,
+      },
+      answer: {
+        text: answerText || "",
+        imageUrl: answerImageUrl,
+      },
+      options: options.length > 0 ? options : undefined,
+      explanation: row.explanation
+        ? {
+            text: row.explanation,
+            imageUrl: explanationImageUrl,
+            videoUrl: explanationVideoUrl,
+          }
+        : undefined,
+    };
+
+    return question;
+  }
+
+  private parseOldFormatCSV(row: any): CreateQuestionDto {
+    // Build question object (old format)
+    const question: CreateQuestionDto = {
+      linkedNodeId: row.linkednodeid || row["linked node id"],
+      linkedNodeType: row.linkednodetype || row["linked node type"],
+      type: row.type,
+      difficulty: row.difficulty || "medium",
+      question: {
+        text: row.questiontext || row["question text"],
+        imageUrl: row.questionimageurl || row["question image url"] || undefined,
+      },
+      answer: {
+        text: row.answertext || row["answer text"],
+        imageUrl: row.answerimageurl || row["answer image url"] || undefined,
+      },
+    };
+
+    // Add options if present
+    const options: any[] = [];
+    for (let optNum = 1; optNum <= 4; optNum++) {
+      const optText = row[`option${optNum}text`] || row[`option ${optNum} text`];
+      if (optText) {
+        options.push({
+          text: optText,
+          imageUrl: row[`option${optNum}imageurl`] || row[`option ${optNum} image url`] || undefined,
+        });
+      }
+    }
+    if (options.length > 0) {
+      question.options = options;
+    }
+
+    // Add explanation if present
+    if (row.explanationtext || row["explanation text"]) {
+      question.explanation = {
+        text: row.explanationtext || row["explanation text"] || undefined,
+        imageUrl: row.explanationimageurl || row["explanation image url"] || undefined,
+        videoUrl: row.explanationvideourl || row["explanation video url"] || undefined,
+      };
+    }
+
+    return question;
   }
 
   private parseCSVLine(line: string): string[] {
