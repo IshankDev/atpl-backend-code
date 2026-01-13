@@ -14,6 +14,24 @@ export class QuestionsService {
   ) {}
 
   async create(createQuestionDto: CreateQuestionDto): Promise<Question> {
+    // For MCQ questions, convert answer text to option index format if needed
+    if (createQuestionDto.type === "mcq" && createQuestionDto.options && createQuestionDto.options.length > 0) {
+      const answerText = createQuestionDto.answer?.text || "";
+      
+      // Check if answer is already in option index format
+      if (!answerText.match(/^option_\d+$/i)) {
+        // Answer is text, find matching option and convert to index format
+        const matchingIndex = createQuestionDto.options.findIndex(
+          (opt) => opt.text.trim().toLowerCase() === answerText.trim().toLowerCase()
+        );
+        
+        if (matchingIndex !== -1) {
+          // Convert to option index format (1-based: option_1, option_2, etc.)
+          createQuestionDto.answer.text = `option_${matchingIndex + 1}`;
+        }
+      }
+    }
+    
     const createdQuestion = new this.questionModel(createQuestionDto);
     return createdQuestion.save();
   }
@@ -73,6 +91,37 @@ export class QuestionsService {
   }
 
   async update(id: string, updateQuestionDto: UpdateQuestionDto): Promise<Question> {
+    // For MCQ questions, convert answer text to option index format if needed
+    if (updateQuestionDto.type === "mcq" || (!updateQuestionDto.type && updateQuestionDto.options)) {
+      // Get existing question to check type if not provided
+      const existingQuestion = await this.questionModel.findById(id).exec();
+      const questionType = updateQuestionDto.type || existingQuestion?.type;
+      
+      if (questionType === "mcq" && updateQuestionDto.options && updateQuestionDto.options.length > 0) {
+        const answerText = updateQuestionDto.answer?.text || "";
+        
+        // Check if answer is already in option index format
+        if (answerText && !answerText.match(/^option_\d+$/i)) {
+          // Answer is text, find matching option and convert to index format
+          const matchingIndex = updateQuestionDto.options.findIndex(
+            (opt) => opt.text.trim().toLowerCase() === answerText.trim().toLowerCase()
+          );
+          
+          if (matchingIndex !== -1) {
+            // Convert to option index format (1-based: option_1, option_2, etc.)
+            if (updateQuestionDto.answer) {
+              updateQuestionDto.answer.text = `option_${matchingIndex + 1}`;
+            } else {
+              updateQuestionDto.answer = {
+                text: `option_${matchingIndex + 1}`,
+                imageUrl: undefined,
+              };
+            }
+          }
+        }
+      }
+    }
+    
     const updatedQuestion = await this.questionModel.findByIdAndUpdate(id, updateQuestionDto, { new: true }).exec();
     if (!updatedQuestion) {
       throw new NotFoundException(`Question with ID ${id} not found`);
@@ -259,8 +308,9 @@ export class QuestionsService {
       // Try parsing as number first
       const correctOptionNum = parseInt(correctOptionValue);
       if (!isNaN(correctOptionNum) && correctOptionNum >= 1 && correctOptionNum <= 4 && options.length >= correctOptionNum) {
-        // It's a number, use it as index (use exact option text)
-        answerText = options[correctOptionNum - 1].text.trim();
+        // It's a number (1-based from CSV), convert to 0-based index and store as option index
+        // Store as "option_1", "option_2", etc. (1-based to match CSV format)
+        answerText = `option_${correctOptionNum}`;
       } else {
         // It's text, find matching option (case-insensitive, trimmed comparison)
         const matchingIndex = options.findIndex(
@@ -268,11 +318,11 @@ export class QuestionsService {
         );
         
         if (matchingIndex !== -1) {
-          // Found matching option, use its text (use the exact option text, not the CSV value)
-          answerText = options[matchingIndex].text.trim();
+          // Found matching option, store the option index (1-based: option_1, option_2, etc.)
+          answerText = `option_${matchingIndex + 1}`;
         } else if (options.length > 0) {
           // No match found, fallback to first option
-          answerText = options[0].text.trim();
+          answerText = "option_1";
         }
       }
     }
