@@ -113,27 +113,47 @@ else
 fi
 
 # -------------------------------------------------
-# Push using git subtree
+# Push using git subtree (force push to overwrite remote)
 # -------------------------------------------------
 echo ""
-echo "📤 Pushing $FOLDER_NAME to $BACKEND_REPO_URL on $BRANCH_NAME branch..."
+echo "📤 Pushing current local code to $BACKEND_REPO_URL on $BRANCH_NAME branch..."
+echo "⚠️  This will overwrite the remote repository with your current local code"
 
-# Push to main branch only
-if git subtree push --prefix="$FOLDER_NAME" "$REMOTE_NAME" "$BRANCH_NAME" 2>&1; then
-  echo ""
-  echo "✅ Successfully pushed to $BRANCH_NAME branch"
+# Use subtree split to create a branch with only the backend_nestjs_code folder
+TEMP_BRANCH="subtree-backend-$(date +%s)"
+echo "   Creating temporary branch: $TEMP_BRANCH"
+
+# Split the subtree into a temporary branch
+if git subtree split --prefix="$FOLDER_NAME" -b "$TEMP_BRANCH" 2>&1; then
+  echo "   ✅ Subtree split successful"
+  
+  # Force push the temporary branch to the remote main branch (overwrites remote)
+  echo "   Force pushing to overwrite remote..."
+  if git push --force "$REMOTE_NAME" "$TEMP_BRANCH:$BRANCH_NAME" 2>&1; then
+    echo ""
+    echo "✅ Successfully pushed current local code to $BRANCH_NAME branch"
+    
+    # Clean up temporary branch
+    echo "   Cleaning up temporary branch..."
+    git branch -D "$TEMP_BRANCH" 2>/dev/null || true
+  else
+    echo ""
+    echo "❌ Failed to push to $BRANCH_NAME branch"
+    echo ""
+    echo "   Possible solutions:"
+    echo "   1. Check that you have push permissions to the repository"
+    echo "   2. Verify the repository URL is correct: $BACKEND_REPO_URL"
+    echo "   3. Ensure you have force push permissions"
+    
+    # Clean up temporary branch on error
+    git branch -D "$TEMP_BRANCH" 2>/dev/null || true
+    exit 1
+  fi
 else
   echo ""
-  echo "❌ Failed to push to $BRANCH_NAME branch"
-  echo ""
-  echo "   Possible solutions:"
-  echo "   1. Ensure the '$BRANCH_NAME' branch exists in the remote repository"
-  echo "   2. If the repository is empty, create an initial commit on '$BRANCH_NAME' branch"
-  echo "   3. Check that you have push permissions to the repository"
-  echo "   4. Verify the repository URL is correct: $BACKEND_REPO_URL"
-  echo ""
-  echo "   To create the main branch if repository is empty:"
-  echo "   git subtree push --prefix=\"$FOLDER_NAME\" \"$REMOTE_NAME\" \"$BRANCH_NAME\" --rejoin"
+  echo "❌ Failed to split subtree"
+  echo "   Cleaning up temporary branch..."
+  git branch -D "$TEMP_BRANCH" 2>/dev/null || true
   exit 1
 fi
 
