@@ -20,8 +20,8 @@ async function bootstrap() {
     origin: [
       process.env.FRONTEND_URL || "http://localhost:3000",
       "http://localhost:3001", // Admin frontend (Next.js default)
-      "http://localhost:3002", // Alternative port
-      /^http:\/\/localhost:\d+$/, // Allow any localhost port for development
+      "https://admin.atplgurukul.com",
+      "https://atplgurukul.com",
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
