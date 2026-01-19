@@ -136,10 +136,46 @@ export class SubjectsController {
     return this.subjectsService.update(id, updateSubjectDto);
   }
 
-  @Delete(":id")
-  @ApiOperation({ summary: "Delete subject by ID" })
+  @Get(":id/delete-preview")
+  @ApiOperation({ summary: "Get delete preview information" })
   @ApiParam({ name: "id", description: "Subject ID", example: "507f1f77bcf86cd799439011" })
-  @ApiResponse({ status: 200, description: "Subject deleted successfully" })
+  @ApiResponse({
+    status: 200,
+    description: "Delete preview retrieved successfully",
+    schema: {
+      example: {
+        subject: {
+          _id: "507f1f77bcf86cd799439011",
+          name: "Mathematics",
+          type: "subject",
+        },
+        childrenCount: 5,
+        children: [
+          { _id: "507f1f77bcf86cd799439012", name: "Algebra", type: "topic" },
+        ],
+        questionsCount: 25,
+        allAffectedIds: ["507f1f77bcf86cd799439011", "507f1f77bcf86cd799439012"],
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: "Subject not found" })
+  getDeletePreview(@Param("id") id: string) {
+    return this.subjectsService.getDeletePreview(id);
+  }
+
+  @Delete(":id")
+  @ApiOperation({ summary: "Delete subject by ID (cascading delete)" })
+  @ApiParam({ name: "id", description: "Subject ID", example: "507f1f77bcf86cd799439011" })
+  @ApiResponse({
+    status: 200,
+    description: "Subject and all children/questions deleted successfully",
+    schema: {
+      example: {
+        deletedSubjects: 5,
+        deletedQuestions: 25,
+      },
+    },
+  })
   @ApiResponse({ status: 404, description: "Subject not found" })
   remove(@Param("id") id: string) {
     return this.subjectsService.remove(id);

@@ -249,7 +249,17 @@ export class QuestionsService {
     if (!questionType) {
       // Auto-detect type based on options
       if (hasOption1 && hasOption2 && !hasOption3 && !hasOption4) {
-        questionType = "truefalse";
+        // Only mark as truefalse if options contain "true" or "false"
+        const option1Lower = row.option_1.trim().toLowerCase();
+        const option2Lower = row.option_2.trim().toLowerCase();
+        const hasTrue = option1Lower.includes("true") || option2Lower.includes("true");
+        const hasFalse = option1Lower.includes("false") || option2Lower.includes("false");
+        
+        if (hasTrue || hasFalse) {
+          questionType = "truefalse";
+        } else {
+          questionType = "mcq";
+        }
       } else if (!hasOption1 && !hasOption2 && !hasOption3 && !hasOption4) {
         questionType = "fillblank";
       } else {
